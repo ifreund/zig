@@ -527,6 +527,8 @@ struct ZigValue {
 
     ZigValue(const ZigValue &other) = delete; // plz zero initialize with ZigValue val = {};
 
+    bool rendering;
+
     // for use in debuggers
     void dump();
 };

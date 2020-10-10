@@ -4105,6 +4105,16 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
         }
     }
 
+    if (explicit_type != nullptr) {
+        // TODO: is this actually OK? probably not
+        ZigValue *value = g->pass1_arena->create<ZigValue>();
+        value->type = explicit_type;
+        value->special = ConstValSpecialStatic;
+        tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
+                is_const, value, &tld_var->base, explicit_type);
+        tld_var->var->is_thread_local = is_thread_local;
+    }
+
     assert(!is_export || !is_extern);
 
     ZigValue *init_value = nullptr;
@@ -4151,9 +4161,13 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     ZigValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(g, type);
 
-    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
-            is_const, init_val, &tld_var->base, type);
-    tld_var->var->is_thread_local = is_thread_local;
+    if (explicit_type != nullptr) {
+        memcpy(tld_var->var->const_value, init_val, sizeof(ZigValue));
+    } else {
+        tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
+                is_const, init_val, &tld_var->base, type);
+        tld_var->var->is_thread_local = is_thread_local;
+    }
 
     if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
         tld_var->var->var_type = g->builtin_types.entry_invalid;

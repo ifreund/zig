@@ -7709,8 +7709,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
 }
 
 static void render_const_val(CodeGen *g, ZigValue *const_val, const char *name) {
-    if (!const_val->llvm_value)
+    if (const_val->rendering) return;
+    if (!const_val->llvm_value) {
+        const_val->rendering = true;
         const_val->llvm_value = gen_const_val(g, const_val, name);
+        const_val->rendering = false;
+    }
 
     if (const_val->llvm_global)
         LLVMSetInitializer(const_val->llvm_global, const_val->llvm_value);
