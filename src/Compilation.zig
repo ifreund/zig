@@ -1024,7 +1024,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .rcrt1_o },
-                .{ .musl_crt_file = .libc_a },
+                .{
+                    .musl_crt_file = switch (comp.bin_file.options.link_mode) {
+                        .Static => .libc_a,
+                        .Dynamic => .libc_so,
+                    },
+                },
             });
         }
         if (comp.wantBuildMinGWFromSource()) {
@@ -3094,6 +3099,7 @@ pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
     const tracy = trace(@src());
@@ -3104,6 +3110,7 @@ pub fn build_crt_file(
         .root_name = root_name,
         .target = target,
         .output_mode = output_mode,
+        .link_mode = link_mode,
     });
     errdefer comp.gpa.free(basename);
 

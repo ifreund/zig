@@ -41,7 +41,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 //"-D_UNICODE",
                 //"-DWPRFLAG=1",
             });
-            return comp.build_crt_file("crt2", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crt2", .Obj, .Static, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtexe.c",
@@ -60,7 +60,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
             });
-            return comp.build_crt_file("dllcrt2", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("dllcrt2", .Obj, .Static, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtdll.c",
@@ -101,7 +101,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             }
-            return comp.build_crt_file("mingw32", .Lib, &c_source_files);
+            return comp.build_crt_file("mingw32", .Lib, .Static, &c_source_files);
         },
 
         .msvcrt_os_lib => {
@@ -150,7 +150,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     };
                 }
             }
-            return comp.build_crt_file("msvcrt-os", .Lib, c_source_files.items);
+            return comp.build_crt_file("msvcrt-os", .Lib, .Static, c_source_files.items);
         },
 
         .mingwex_lib => {
@@ -216,7 +216,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             } else {
                 unreachable;
             }
-            return comp.build_crt_file("mingwex", .Lib, c_source_files.items);
+            return comp.build_crt_file("mingwex", .Lib, .Static, c_source_files.items);
         },
 
         .uuid_lib => {
@@ -250,7 +250,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = extra_flags,
                 };
             }
-            return comp.build_crt_file("uuid", .Lib, &c_source_files);
+            return comp.build_crt_file("uuid", .Lib, .Static, &c_source_files);
         },
     }
 }

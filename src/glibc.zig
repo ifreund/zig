@@ -275,7 +275,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crti", .Obj, .Static, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .extra_flags = args.items,
@@ -293,7 +293,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crtn", .Obj, .Static, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .extra_flags = args.items,
@@ -344,7 +344,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, .Static, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
             const deps = [_][]const u8{
@@ -434,7 +434,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             }
-            return comp.build_crt_file("c_nonshared", .Lib, &c_source_files);
+            return comp.build_crt_file("c_nonshared", .Lib, .Static, &c_source_files);
         },
     }
 }
