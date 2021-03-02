@@ -1067,10 +1067,9 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
     const src_has_newline = !tree.tokensOnSameLine(rparen, last_then_token);
 
     if (src_has_newline) {
-        const base_node_is_if = mem.eql(u8, tree.tokenSlice(while_node.ast.while_token), "if");
         const newline_before_then_token = !tree.tokensOnSameLine(rparen, first_then_token);
-        const space_before_then_token: Space = if (newline_before_then_token or base_node_is_if) .newline else .space;
-        const indent_expression = base_node_is_if or !nodeIsIf(then_tag) or newline_before_then_token;
+        const space_before_then_token: Space = if (newline_before_then_token) .newline else .space;
+        const indent_expression = !nodeIsIf(then_tag) or newline_before_then_token;
 
         if (while_node.payload_token) |payload_token| {
             const after_space: Space = if (while_node.ast.cont_expr != 0) .space else space_before_then_token;
