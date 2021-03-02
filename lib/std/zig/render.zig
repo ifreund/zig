@@ -1070,15 +1070,16 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
         const base_node_is_if = mem.eql(u8, tree.tokenSlice(while_node.ast.while_token), "if");
         const newline_before_then_token = !tree.tokensOnSameLine(rparen, first_then_token);
         const space_before_then_token: Space = if (newline_before_then_token or base_node_is_if) .newline else .space;
+        const indent_expression = base_node_is_if or !nodeIsIf(then_tag) or newline_before_then_token;
 
         if (while_node.payload_token) |payload_token| {
             const after_space: Space = if (while_node.ast.cont_expr != 0) .space else space_before_then_token;
             try renderWhilePayload(gpa, ais, tree, payload_token, after_space);
         } else {
-            ais.pushIndent();
+            if (indent_expression) ais.pushIndent();
             const after_space: Space = if (while_node.ast.cont_expr != 0) .space else space_before_then_token;
             try renderToken(ais, tree, rparen, after_space); // rparen
-            ais.popIndent();
+            if (indent_expression) ais.popIndent();
         }
         if (while_node.ast.cont_expr != 0) {
             const cont_rparen = tree.lastToken(while_node.ast.cont_expr) + 1;
@@ -1089,9 +1090,9 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
             try renderToken(ais, tree, cont_rparen, space_before_then_token); // rparen
         }
         if (while_node.ast.else_expr != 0) {
-            ais.pushIndent();
+            if (indent_expression) ais.pushIndent();
             try renderExpression(gpa, ais, tree, while_node.ast.then_expr, .newline);
-            ais.popIndent();
+            if (indent_expression) ais.popIndent();
             const else_is_block = nodeIsBlock(node_tags[while_node.ast.else_expr]);
             if (else_is_block) {
                 try renderToken(ais, tree, while_node.else_token, .space); // else
@@ -1110,10 +1111,18 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
                 } else {
                     try renderToken(ais, tree, while_node.else_token, .newline); // else
                 }
-                return renderExpressionIndented(gpa, ais, tree, while_node.ast.else_expr, space);
+                if (indent_expression) {
+                    return renderExpressionIndented(gpa, ais, tree, while_node.ast.else_expr, space);
+                } else {
+                    return renderExpression(gpa, ais, tree, while_node.ast.else_expr, space);
+                }
             }
         } else {
-            return renderExpressionIndented(gpa, ais, tree, while_node.ast.then_expr, space);
+            if (indent_expression) {
+                return renderExpressionIndented(gpa, ais, tree, while_node.ast.then_expr, space);
+            } else {
+                return renderExpression(gpa, ais, tree, while_node.ast.then_expr, space);
+            }
         }
     }
 
