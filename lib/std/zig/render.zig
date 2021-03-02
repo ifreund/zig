@@ -1062,16 +1062,21 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
     }
 
     const rparen = tree.lastToken(while_node.ast.cond_expr) + 1;
+    const first_then_token = tree.firstToken(while_node.ast.then_expr);
     const last_then_token = tree.lastToken(while_node.ast.then_expr);
     const src_has_newline = !tree.tokensOnSameLine(rparen, last_then_token);
 
     if (src_has_newline) {
+        const base_node_is_if = mem.eql(u8, tree.tokenSlice(while_node.ast.while_token), "if");
+        const newline_before_then_token = !tree.tokensOnSameLine(rparen, first_then_token);
+        const space_before_then_token: Space = if (newline_before_then_token or base_node_is_if) .newline else .space;
+
         if (while_node.payload_token) |payload_token| {
-            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else .newline;
+            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else space_before_then_token;
             try renderWhilePayload(gpa, ais, tree, payload_token, after_space);
         } else {
             ais.pushIndent();
-            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else .newline;
+            const after_space: Space = if (while_node.ast.cont_expr != 0) .space else space_before_then_token;
             try renderToken(ais, tree, rparen, after_space); // rparen
             ais.popIndent();
         }
@@ -1081,7 +1086,7 @@ fn renderWhile(gpa: *Allocator, ais: *Ais, tree: ast.Tree, while_node: ast.full.
             try renderToken(ais, tree, cont_lparen - 1, .space); // :
             try renderToken(ais, tree, cont_lparen, .none); // lparen
             try renderExpression(gpa, ais, tree, while_node.ast.cont_expr, .none);
-            try renderToken(ais, tree, cont_rparen, .newline); // rparen
+            try renderToken(ais, tree, cont_rparen, space_before_then_token); // rparen
         }
         if (while_node.ast.else_expr != 0) {
             ais.pushIndent();
