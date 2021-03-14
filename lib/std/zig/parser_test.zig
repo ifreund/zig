@@ -3209,6 +3209,56 @@ test "zig fmt: for if" {
     );
 }
 
+test "zig fmt: while if" {
+    try testCanonical(
+        \\test "for if" {
+        \\    while (a) if (x) f(x);
+        \\
+        \\    while (a) if (x)
+        \\        f(x);
+        \\
+        \\    while (a) if (x) {
+        \\        f(x);
+        \\    };
+        \\
+        \\    while (a)
+        \\        if (x)
+        \\            f(x);
+        \\
+        \\    while (a)
+        \\        if (x) {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: while for" {
+    try testCanonical(
+        \\test "for if" {
+        \\    while (a) for (x) |x| f(x);
+        \\
+        \\    while (a) for (x) |x|
+        \\        f(x);
+        \\
+        \\    while (a) for (x) |x| {
+        \\        f(x);
+        \\    };
+        \\
+        \\    while (a)
+        \\        for (x) |x|
+        \\            f(x);
+        \\
+        \\    while (a)
+        \\        for (x) |x| {
+        \\            f(x);
+        \\        };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: if" {
     try testCanonical(
         \\test "if" {
@@ -3845,9 +3895,78 @@ test "zig fmt: comments in ternary ifs" {
         \\    // Comment
         \\    1
         \\else
+        \\    // Comment
         \\    0;
         \\
         \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+        \\
+    );
+}
+
+test "zig fmt: ternary if" {
+    try testCanonical(
+        \\const x = if (true) foo()
+        \\    else bar();
+        \\
+    );
+}
+
+test "zig fmt: while in single statement if" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        while (it.next()) |node| {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null
+        \\    else
+        \\        focused_node;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: while in single statement if" {
+    try testCanonical(
+        \\pub fn next(self: *Iterator) ?*Node {
+        \\    while (self.it) |node| : (self.it = if (self.reverse) node.prev else node.next) {
+        \\        if (if (self.pending) self.tags & node.view.pending.tags != 0
+        \\            else self.tags & node.view.current.tags != 0)
+        \\        {
+        \\            self.it = if (self.reverse) node.prev else node.next;
+        \\            return node;
+        \\        }
+        \\    }
+        \\    return null;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: ternary if in switch" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    return switch (foo) {
+        \\        0 => if (xyz) abc
+        \\            else def,
+        \\        else => ghi,
+        \\    };
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    return switch (foo) {
+        \\        .MyThing => if (checkMyXYZ(xyz)) parseAsABC(xyz)
+        \\            else if (anotherCheck(xyz)) parseAsDEF(xyz)
+        \\            else if (isItOK(uvw)) someFunction(123) + anotherFunction(456)
+        \\            else if (checkerFunction(pqr)) switch (stu) {
+        \\                .SomeOtherThing => if (checkMyXYZ(xyz)) parseAsABC(xyz)
+        \\                    else if (anotherCheck(xyz)) parseAsDEF(xyz)
+        \\                    else if (isItOK(uvw)) someFunction(123) + anotherFunction(456)
+        \\                    else 5,
+        \\                else => that,
+        \\            } else ghi,
+        \\        else => jkl,
+        \\    };
+        \\}
         \\
     );
 }
