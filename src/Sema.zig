@@ -12,7 +12,17 @@ gpa: *Allocator,
 arena: *Allocator,
 code: zir.Code,
 /// Maps ZIR to TZIR.
-inst_map: []*Inst,
+inst_map: struct {
+    raw: []*Inst,
+
+    fn get(inst_map: @This(), key: zir.Inst.Index) *Inst {
+        return inst_map.raw[@enumToInt(key)];
+    }
+
+    fn set(inst_map: @This(), key: zir.Inst.Index, value: *Inst) void {
+        inst_map.raw[@enumToInt(key)] = value;
+    }
+},
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
@@ -54,7 +64,8 @@ const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 
 pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Ref {
-    const root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
+    const raw_root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
+    const root_body = mem.bytesAsSlice(zir.Inst.Index, mem.sliceAsBytes(raw_root_body));
     return sema.analyzeBody(root_block, root_body);
 }
 
@@ -71,21 +82,20 @@ pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
 /// return type of `analyzeBody` so that we can tail call them.
 /// Only appropriate to return when the instruction is known to be NoReturn
 /// solely based on the ZIR tag.
-const always_noreturn: InnerError!zir.Inst.Ref = @as(zir.Inst.Index, 0);
+const always_noreturn: InnerError!zir.Inst.Ref = @enumToInt(zir.Inst.Ref, 0);
 
 /// This function is the main loop of `Sema` and it can be used in two different ways:
 /// * The traditional way where there are N breaks out of the block and peer type
-///   resolution is done on the break operands. In this case, the `zir.Inst.Index`
+///   resolution is done on the break operands. In this case, the `zir.Inst.Ref`
 ///   part of the return value will be `undefined`, and callsites should ignore it,
 ///   finding the block result value via the block scope.
 /// * The "flat" way. There is only 1 break out of the block, and it is with a `break_flat`
-///   instruction. In this case, the `zir.Inst.Index` part of the return value will be
+///   instruction. In this case, the `zir.Inst.Ref` part of the return value will be
 ///   the block result value. No block scope needs to be created for this strategy.
-pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) !zir.Inst.Index {
+pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) !zir.Inst.Ref {
     // No tracy calls here, to avoid interfering with the tail call mechanism.
 
     const map = block.sema.inst_map;
-    const tags = block.sema.code.instructions.items(.tag);
 
     // We use a while(true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
@@ -96,7 +106,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
     var i: usize = 0;
     while (true) : (i += 1) {
         const inst = body[i];
-        map[inst] = switch (tags[inst]) {
+        map.set(inst, switch (block.sema.code.tag(inst)) {
             .elided => continue,
 
             .add => try sema.zirArithmetic(block, inst),
@@ -219,7 +229,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .condbr => return sema.zirCondbr(block, inst),
             .@"break" => return sema.zirBreak(block, inst),
             .break_void_node => return sema.zirBreakVoidNode(block, inst),
-            .break_flat => return sema.code.instructions.items(.data)[inst].un_node.operand,
+            .break_flat => return sema.code.data(inst).un_node.operand,
             .compile_error => return sema.zirCompileError(block, inst),
             .ret_coerce => return sema.zirRetTok(block, inst, true),
             .ret_node => return sema.zirRetNode(block, inst),
@@ -276,15 +286,15 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
                 try sema.zirResolveInferredAlloc(block, inst);
                 continue;
             },
-        };
-        if (map[inst].ty.isNoReturn())
+        });
+        if (map.get(inst).ty.isNoReturn())
             return always_noreturn;
     }
 }
 
 /// TODO when we rework TZIR memory layout, this function will no longer have a possible error.
 pub fn resolveInst(sema: *Sema, zir_ref: zir.Inst.Ref) error{OutOfMemory}!*ir.Inst {
-    var i: usize = zir_ref;
+    var i: usize = @enumToInt(zir_ref);
 
     // First section of indexes correspond to a set number of constant values.
     if (i < zir.const_inst_list.len) {
@@ -394,7 +404,7 @@ fn zirConst(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tv_ptr = sema.code.instructions.items(.data)[inst].@"const";
+    const tv_ptr = sema.code.data(inst).@"const";
     // Move the TypedValue from old memory to new memory. This allows freeing the ZIR instructions
     // after analysis. This happens, for example, with variable declaration initialization
     // expressions.
@@ -436,7 +446,7 @@ fn zirRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeRef(block, inst_data.src(), operand);
 }
@@ -456,7 +466,7 @@ fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) I
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
@@ -479,7 +489,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
     switch (operand.ty.zigTypeTag()) {
@@ -492,7 +502,7 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const array_ptr = try sema.resolveInst(inst_data.operand);
 
@@ -526,7 +536,7 @@ fn zirAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_decl_src = inst_data.src();
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
@@ -539,7 +549,7 @@ fn zirAllocMut(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const var_decl_src = inst_data.src();
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
@@ -558,7 +568,7 @@ fn zirAllocInferred(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
 
     const val_payload = try sema.arena.create(Value.Payload.InferredAlloc);
@@ -582,7 +592,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const ptr = try sema.resolveInst(inst_data.operand);
     const ptr_val = ptr.castTag(.constant).?.val;
@@ -608,7 +618,7 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const ptr = try sema.resolveInst(bin_inst.lhs);
     const value = try sema.resolveInst(bin_inst.rhs);
     const ptr_ty = try sema.mod.simplePtrType(sema.arena, value.ty, true, .One);
@@ -625,7 +635,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index)
     defer tracy.end();
 
     const src: LazySrcLoc = .unneeded;
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const ptr = try sema.resolveInst(bin_inst.lhs);
     const value = try sema.resolveInst(bin_inst.rhs);
     const inferred_alloc = ptr.castTag(.constant).?.val.castTag(.inferred_alloc).?;
@@ -640,7 +650,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index)
 }
 
 fn zirSetEvalBranchQuota(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     try sema.requireFunctionBlock(block, src);
     const quota = try sema.resolveAlreadyCoercedInt(block, src, inst_data.operand, u32);
@@ -652,7 +662,7 @@ fn zirStore(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const ptr = try sema.resolveInst(bin_inst.lhs);
     const value = try sema.resolveInst(bin_inst.rhs);
     return sema.storePtr(block, .unneeded, ptr, value);
@@ -663,7 +673,7 @@ fn zirParamType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     defer tracy.end();
 
     const src: LazySrcLoc = .unneeded;
-    const inst_data = sema.code.instructions.items(.data)[inst].param_type;
+    const inst_data = sema.code.data(inst).param_type;
     const fn_inst = try sema.resolveInst(inst_data.callee);
     const param_index = inst_data.param_index;
 
@@ -698,7 +708,7 @@ fn zirStr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const zir_bytes = sema.code.instructions.items(.data)[inst].str.get(sema.code);
+    const zir_bytes = sema.code.data(inst).str.get(sema.code);
 
     // `zir_bytes` references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete, for example in the case of the initialization
@@ -724,15 +734,15 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const int = sema.code.instructions.items(.data)[inst].int;
+    const int = sema.code.data(inst).int;
     return sema.mod.constIntUnsigned(sema.arena, .unneeded, Type.initTag(.comptime_int), int);
 }
 
-fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
+fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const msg = try sema.resolveConstString(block, operand_src, inst_data.operand);
@@ -744,7 +754,7 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     defer sema.mod.compile_log_text = managed.moveToUnmanaged();
     const writer = managed.writer();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
     for (sema.code.extra[extra.end..][0..extra.data.operands_len]) |arg_ref, i| {
         if (i != 0) try writer.print(", ", .{});
@@ -768,7 +778,7 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.operands_len];
@@ -814,10 +824,11 @@ fn zirBlock(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const raw_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const body = mem.bytesAsSlice(zir.Inst.Index, mem.sliceAsBytes(raw_body));
 
     // Reserve space for a Block instruction so that generated Break instructions can
     // point to it, even if it doesn't end up getting used because the code ends up being
@@ -945,26 +956,26 @@ fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src_node = sema.code.data(inst).node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     try sema.requireRuntimeBlock(block, src);
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
 }
 
-fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
+fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].@"break";
+    const inst_data = sema.code.data(inst).@"break";
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeBreak(block, sema.src, inst_data.block_inst, operand);
 }
 
-fn zirBreakVoidNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
+fn zirBreakVoidNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].break_void_node;
+    const inst_data = sema.code.data(inst).break_void_node;
     const void_inst = try sema.mod.constVoid(sema.arena, .unneeded);
     return sema.analyzeBreak(block, inst_data.src(), inst_data.block_inst, void_inst);
 }
@@ -1013,7 +1024,7 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
 
     if (block.is_comptime) return;
 
-    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src_node = sema.code.data(inst).node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     const src_loc = src.toSrcLoc(&block.base);
     const abs_byte_off = try src_loc.byteOffset();
@@ -1024,7 +1035,7 @@ fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = sema.code.instructions.items(.data)[inst].decl;
+    const decl = sema.code.data(inst).decl;
     return sema.analyzeDeclRef(block, .unneeded, decl);
 }
 
@@ -1032,7 +1043,7 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = sema.code.instructions.items(.data)[inst].decl;
+    const decl = sema.code.data(inst).decl;
     return sema.analyzeDeclVal(block, .unneeded, decl);
 }
 
@@ -1045,7 +1056,7 @@ fn zirCallNone(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
 
     return sema.analyzeCall(block, inst_data.operand, func_src, inst_data.src(), .auto, ensure_result_used, &.{});
@@ -1061,11 +1072,12 @@ fn zirCall(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.Call, inst_data.payload_index);
-    const args = sema.code.extra[extra.end..][0..extra.data.args_len];
+    const raw_args = sema.code.extra[extra.end..][0..extra.data.args_len];
+    const args = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_args));
 
     return sema.analyzeCall(block, extra.data.callee, func_src, call_src, modifier, ensure_result_used, args);
 }
@@ -1231,7 +1243,7 @@ fn zirOptionalType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inner
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const child_type = try sema.resolveType(block, src, inst_data.operand);
     const opt_type = try sema.mod.optionalType(sema.arena, child_type);
@@ -1243,7 +1255,7 @@ fn zirOptionalTypeFromPtrElem(sema: *Sema, block: *Scope.Block, inst: zir.Inst.I
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const ptr = try sema.resolveInst(inst_data.operand);
     const elem_ty = ptr.ty.elemType();
     const opt_ty = try sema.mod.optionalType(sema.arena, elem_ty);
@@ -1256,7 +1268,7 @@ fn zirArrayType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     defer tracy.end();
 
     // TODO these should be lazily evaluated
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const len = try sema.resolveInstConst(block, .unneeded, bin_inst.lhs);
     const elem_type = try sema.resolveType(block, .unneeded, bin_inst.rhs);
     const array_ty = try sema.mod.arrayType(sema.arena, len.val.toUnsignedInt(), null, elem_type);
@@ -1269,7 +1281,7 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) 
     defer tracy.end();
 
     // TODO these should be lazily evaluated
-    const inst_data = sema.code.instructions.items(.data)[inst].array_type_sentinel;
+    const inst_data = sema.code.data(inst).array_type_sentinel;
     const len = try sema.resolveInstConst(block, .unneeded, inst_data.len);
     const extra = sema.code.extraData(zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
     const sentinel = try sema.resolveInstConst(block, .unneeded, extra.sentinel);
@@ -1283,7 +1295,7 @@ fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const error_union = try sema.resolveType(block, .unneeded, bin_inst.lhs);
     const payload = try sema.resolveType(block, .unneeded, bin_inst.rhs);
 
@@ -1334,7 +1346,7 @@ fn zirErrorValue(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const inst_data = sema.code.data(inst).str_tok;
     const src = inst_data.src();
 
     // Create an anonymous error set type with only this error value, and return the value.
@@ -1354,7 +1366,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
 
     if (true) @panic("TODO update zirMergeErrorSets in zir-memory-layout branch");
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const lhs_ty = try sema.resolveType(block, .unneeded, bin_inst.lhs);
     const rhs_ty = try sema.resolveType(block, .unneeded, bin_inst.rhs);
     if (rhs_ty.zigTypeTag() != .ErrorSet)
@@ -1433,7 +1445,7 @@ fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const inst_data = sema.code.data(inst).str_tok;
     const src = inst_data.src();
     const duped_name = try sema.arena.dupe(u8, inst_data.get(sema.code));
     return sema.mod.constInst(sema.arena, src, .{
@@ -1446,7 +1458,7 @@ fn zirEnumLiteralSmall(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) I
     const tracy = trace(@src());
     defer tracy.end();
 
-    const name = sema.code.instructions.items(.data)[inst].small_str.get();
+    const name = sema.code.data(inst).small_str.get();
     const src: LazySrcLoc = .unneeded;
     const duped_name = try sema.arena.dupe(u8, name);
     return sema.mod.constInst(sema.arena, src, .{
@@ -1465,7 +1477,7 @@ fn zirOptionalPayloadPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const optional_ptr = try sema.resolveInst(inst_data.operand);
     assert(optional_ptr.ty.zigTypeTag() == .Pointer);
     const src = inst_data.src();
@@ -1508,7 +1520,7 @@ fn zirOptionalPayload(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     const opt_type = operand.ty;
@@ -1546,7 +1558,7 @@ fn zirErrUnionPayload(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     if (operand.ty.zigTypeTag() != .ErrorUnion)
@@ -1580,7 +1592,7 @@ fn zirErrUnionPayloadPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
@@ -1619,7 +1631,7 @@ fn zirErrUnionCode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inner
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     if (operand.ty.zigTypeTag() != .ErrorUnion)
@@ -1643,7 +1655,7 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
@@ -1669,7 +1681,7 @@ fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     if (operand.ty.zigTypeTag() != .ErrorUnion)
@@ -1683,9 +1695,10 @@ fn zirFnType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args: b
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
+    const inst_data = sema.code.data(inst).fn_type;
     const extra = sema.code.extraData(zir.Inst.FnType, inst_data.payload_index);
-    const param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
+    const raw_param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
+    const param_types = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_param_types));
 
     return sema.fnTypeCommon(
         block,
@@ -1701,9 +1714,10 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args:
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
+    const inst_data = sema.code.data(inst).fn_type;
     const extra = sema.code.extraData(zir.Inst.FnTypeCc, inst_data.payload_index);
-    const param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
+    const raw_param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
+    const param_types = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_param_types));
 
     const cc_tv = try sema.resolveInstConst(block, .todo, extra.data.cc);
     // TODO once we're capable of importing and analyzing decls from
@@ -1774,7 +1788,7 @@ fn zirAs(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Ins
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     return sema.analyzeAs(block, .unneeded, bin_inst.lhs, bin_inst.rhs);
 }
 
@@ -1782,7 +1796,7 @@ fn zirAsNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.As, inst_data.payload_index).data;
     return sema.analyzeAs(block, src, extra.dest_type, extra.operand);
@@ -1804,7 +1818,7 @@ fn zirPtrtoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const ptr = try sema.resolveInst(inst_data.operand);
     if (ptr.ty.zigTypeTag() != .Pointer) {
         const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
@@ -1821,7 +1835,7 @@ fn zirFieldVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
@@ -1836,7 +1850,7 @@ fn zirFieldPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
@@ -1849,7 +1863,7 @@ fn zirFieldValNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.FieldNamed, inst_data.payload_index).data;
@@ -1864,7 +1878,7 @@ fn zirFieldPtrNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.FieldNamed, inst_data.payload_index).data;
@@ -1877,7 +1891,7 @@ fn zirIntcast(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
@@ -1920,7 +1934,7 @@ fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const dest_type = try sema.resolveType(block, .todo, bin_inst.lhs);
     const operand = try sema.resolveInst(bin_inst.rhs);
     return sema.bitcast(block, dest_type, operand);
@@ -1930,7 +1944,7 @@ fn zirFloatcast(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
@@ -1973,7 +1987,7 @@ fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const array = try sema.resolveInst(bin_inst.lhs);
     const array_ptr = try sema.analyzeRef(block, sema.src, array);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
@@ -1985,7 +1999,7 @@ fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
@@ -2000,7 +2014,7 @@ fn zirElemPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const array_ptr = try sema.resolveInst(bin_inst.lhs);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
     return sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src);
@@ -2010,7 +2024,7 @@ fn zirElemPtrNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
@@ -2023,7 +2037,7 @@ fn zirSliceStart(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.SliceStart, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
@@ -2036,7 +2050,7 @@ fn zirSliceEnd(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.SliceEnd, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
@@ -2050,7 +2064,7 @@ fn zirSliceSentinel(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const sentinel_src: LazySrcLoc = .{ .node_offset_slice_sentinel = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.SliceSentinel, inst_data.payload_index).data;
@@ -2067,7 +2081,7 @@ fn zirSwitchRange(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     defer tracy.end();
 
     const src: LazySrcLoc = .todo;
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const start = try sema.resolveInst(bin_inst.lhs);
     const end = try sema.resolveInst(bin_inst.rhs);
 
@@ -2303,7 +2317,7 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveConstString(block, operand_src, inst_data.operand);
@@ -2341,7 +2355,7 @@ fn zirBitwise(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 
     if (true) @panic("TODO rework with zir-memory-layout in mind");
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const src: LazySrcLoc = .todo;
     const lhs = try sema.resolveInst(bin_inst.lhs);
     const rhs = try sema.resolveInst(bin_inst.rhs);
@@ -2424,7 +2438,7 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
@@ -2461,9 +2475,9 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
 
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
     const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
-    const zir_tags = block.sema.code.instructions.items(.tag);
+    const inst_tag = block.sema.code.tag(inst);
 
-    if (!is_int and !(is_float and floatOpAllowed(zir_tags[inst]))) {
+    if (!is_int and !(is_float and floatOpAllowed(inst_tag))) {
         return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
@@ -2484,7 +2498,7 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
                 });
             }
 
-            const value = switch (zir_tags[inst]) {
+            const value = switch (inst_tag) {
                 .add => blk: {
                     const val = if (is_int)
                         try Module.intAdd(sema.arena, lhs_val, rhs_val)
@@ -2499,10 +2513,10 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
                         try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
                     break :blk val;
                 },
-                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tags[inst])}),
+                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(inst_tag)}),
             };
 
-            log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tags[inst]), lhs_val, rhs_val, value });
+            log.debug("{s}({}, {}) result: {}", .{ @tagName(inst_tag), lhs_val, rhs_val, value });
 
             return sema.mod.constInst(sema.arena, src, .{
                 .ty = scalar_type,
@@ -2512,14 +2526,14 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const ir_tag: Inst.Tag = switch (zir_tags[inst]) {
+    const ir_tag: Inst.Tag = switch (inst_tag) {
         .add => .add,
         .addwrap => .addwrap,
         .sub => .sub,
         .subwrap => .subwrap,
         .mul => .mul,
         .mulwrap => .mulwrap,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tags[inst])}),
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst_tag)}),
     };
 
     return block.addBinOp(src, scalar_type, ir_tag, casted_lhs, casted_rhs);
@@ -2529,7 +2543,7 @@ fn zirDerefNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const ptr_src: LazySrcLoc = .{ .node_offset_deref_ptr = inst_data.src_node };
     const ptr = try sema.resolveInst(inst_data.operand);
@@ -2545,7 +2559,7 @@ fn zirAsm(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const asm_source_src: LazySrcLoc = .{ .node_offset_asm_source = inst_data.src_node };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_asm_ret_ty = inst_data.src_node };
@@ -2555,7 +2569,7 @@ fn zirAsm(
 
     var extra_i = extra.end;
     const Output = struct { name: []const u8, inst: *Inst };
-    const output: ?Output = if (extra.data.output != 0) blk: {
+    const output: ?Output = if (extra.data.output != .none) blk: {
         const name = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk Output{
@@ -2610,7 +2624,7 @@ fn zirCmp(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
     const src: LazySrcLoc = inst_data.src();
     const lhs = try sema.resolveInst(extra.lhs);
@@ -2674,7 +2688,7 @@ fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.mod.constType(sema.arena, inst_data.src(), operand.ty);
 }
@@ -2683,14 +2697,16 @@ fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
+    const raw_args = sema.code.extra[extra.end..][0..extra.data.operands_len];
+    const args = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_args));
 
     const inst_list = try sema.gpa.alloc(*ir.Inst, extra.data.operands_len);
     defer sema.gpa.free(inst_list);
 
-    for (sema.code.extra[extra.end..][0..extra.data.operands_len]) |arg_ref, i| {
+    for (args) |arg_ref, i| {
         inst_list[i] = try sema.resolveInst(arg_ref);
     }
 
@@ -2702,7 +2718,7 @@ fn zirBoolNot(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const src = inst_data.src();
     const uncasted_operand = try sema.resolveInst(inst_data.operand);
 
@@ -2726,7 +2742,7 @@ fn zirBoolOp(
 
     const src: LazySrcLoc = .unneeded;
     const bool_type = Type.initTag(.bool);
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const bin_inst = sema.code.data(inst).bin;
     const uncasted_lhs = try sema.resolveInst(bin_inst.lhs);
     const lhs = try sema.coerce(block, bool_type, uncasted_lhs, uncasted_lhs.src);
     const uncasted_rhs = try sema.resolveInst(bin_inst.rhs);
@@ -2755,11 +2771,12 @@ fn zirBoolBr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].bool_br;
+    const inst_data = sema.code.data(inst).bool_br;
     const src: LazySrcLoc = .unneeded;
     const lhs = try sema.resolveInst(inst_data.lhs);
     const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const raw_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const body = mem.bytesAsSlice(zir.Inst.Index, mem.sliceAsBytes(raw_body));
 
     if (try sema.resolveDefinedValue(parent_block, src, lhs)) |lhs_val| {
         if (lhs_val.toBool() == is_bool_or) {
@@ -2824,7 +2841,7 @@ fn zirIsNull(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeIsNull(block, src, operand, invert_logic);
@@ -2839,7 +2856,7 @@ fn zirIsNullPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeDeref(block, src, ptr, src);
@@ -2850,7 +2867,7 @@ fn zirIsErr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeIsErr(block, inst_data.src(), operand);
 }
@@ -2859,7 +2876,7 @@ fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeDeref(block, src, ptr, src);
@@ -2874,13 +2891,13 @@ fn zirCondbr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const inst_data = sema.code.data(inst).pl_node;
     const src = inst_data.src();
     const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.CondBr, inst_data.payload_index);
 
-    const then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
-    const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const raw_then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
+    const raw_else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
 
     const uncasted_cond = try sema.resolveInst(extra.data.condition);
     const cond = try sema.coerce(parent_block, Type.initTag(.bool), uncasted_cond, cond_src);
@@ -2923,7 +2940,7 @@ fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
+    const inst_data = sema.code.data(inst).@"unreachable";
     const src = inst_data.src();
     const safety_check = inst_data.safety;
     try sema.requireRuntimeBlock(block, src);
@@ -2945,7 +2962,7 @@ fn zirRetTok(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.data(inst).un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
@@ -2956,7 +2973,7 @@ fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.data(inst).un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
@@ -3001,7 +3018,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].ptr_type_simple;
+    const inst_data = sema.code.data(inst).ptr_type_simple;
     const elem_type = try sema.resolveType(block, .unneeded, inst_data.elem_type);
     const ty = try sema.mod.ptrType(
         sema.arena,
@@ -3023,31 +3040,31 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     defer tracy.end();
 
     const src: LazySrcLoc = .unneeded;
-    const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
+    const inst_data = sema.code.data(inst).ptr_type;
     const extra = sema.code.extraData(zir.Inst.PtrType, inst_data.payload_index);
 
     var extra_i = extra.end;
 
     const sentinel = if (inst_data.flags.has_sentinel) blk: {
-        const ref = sema.code.extra[extra_i];
+        const ref = @enumToInt(zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk (try sema.resolveInstConst(block, .unneeded, ref)).val;
     } else null;
 
     const abi_align = if (inst_data.flags.has_align) blk: {
-        const ref = sema.code.extra[extra_i];
+        const ref = @enumToInt(zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u32);
     } else 0;
 
     const bit_start = if (inst_data.flags.has_bit_range) blk: {
-        const ref = sema.code.extra[extra_i];
+        const ref = @enumToInt(zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
     const bit_end = if (inst_data.flags.has_bit_range) blk: {
-        const ref = sema.code.extra[extra_i];
+        const ref = @enumToInt(zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;

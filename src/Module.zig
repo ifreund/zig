@@ -927,7 +927,7 @@ pub const Scope = struct {
         zir_code: *WipZirCode,
         /// Keeps track of the list of instructions in this scope only. References
         /// to instructions in `zir_code`.
-        instructions: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
+        instructions: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
         label: ?Label = null,
         break_block: zir.Inst.Index = 0,
         continue_block: zir.Inst.Index = 0,
@@ -3193,12 +3193,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .gpa = mod.gpa,
         .arena = &arena.allocator,
         .code = func.zir,
-        .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
+        .inst_map = .{ .raw = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len) },
         .owner_decl = decl,
         .func = func,
         .param_inst_list = param_inst_list,
     };
-    defer mod.gpa.free(sema.inst_map);
+    defer mod.gpa.free(sema.inst_map.raw);
 
     var inner_block: Scope.Block = .{
         .parent = null,

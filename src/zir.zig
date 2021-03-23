@@ -41,6 +41,14 @@ pub const Code = struct {
     /// Number of ZIR instructions in the implicit root block of the `Code`.
     root_len: u32,
 
+    pub fn tag(code: Code, index: Inst.Index) Inst.Tag {
+        return code.instructions.items(.tag)[@enumToInt(index)];
+    }
+
+    pub fn data(code: Code, index: Inst.Index) Inst.Data {
+        return code.instructions.items(.data)[@enumToInt(index)];
+    }
+
     /// Returns the requested data, as well as the new index which is at the start of the
     /// trailers for the object.
     pub fn extraData(code: Code, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -48,8 +56,12 @@ pub const Code = struct {
         var i: usize = index;
         var result: T = undefined;
         inline for (fields) |field| {
-            comptime assert(field.field_type == u32);
-            @field(result, field.name) = code.extra[i];
+            @field(result, field.name) = switch (field.field_type) {
+                u32 => code.extra[i],
+                Inst.Index => @intToEnum(Inst.Index, code.extra[i]),
+                Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
+                else => unreachable,
+            };
             i += 1;
         }
         return .{
@@ -1010,7 +1022,9 @@ pub const Inst = struct {
     };
 
     /// The position of a ZIR instruction within the `Code` instructions array.
-    pub const Index = u32;
+    pub const Index = packed enum(u32) {
+        _,
+    };
 
     /// A reference to another ZIR instruction. If this value is below a certain
     /// threshold, it implicitly refers to a constant-known value from the `Const` enum.
@@ -1018,8 +1032,11 @@ pub const Inst = struct {
     /// function.
     /// Finally, after subtracting that offset, it refers to another instruction in
     /// the instruction array.
-    /// This logic is implemented in `Sema.resolveRef`.
-    pub const Ref = u32;
+    /// This logic is implemented in `Sema.resolveInst`.
+    pub const Ref = packed enum(u32) {
+        none,
+        _,
+    };
 
     /// All instructions have an 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
@@ -1231,7 +1248,7 @@ pub const Inst = struct {
         args_len: u32,
     };
 
-    /// This data is stored inside extra, with two sets of trailing `Ref`:
+    /// This data is stored inside extra, with two sets of trailing `Index`:
     /// * 0. the then body, according to `then_body_len`.
     /// * 1. the else body, according to `else_body_len`.
     pub const CondBr = struct {
