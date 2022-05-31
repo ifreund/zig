@@ -124,6 +124,7 @@ pub fn build(b: *Builder) !void {
 
     var exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
+    exe.build_id = !strip;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);

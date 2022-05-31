@@ -738,6 +738,7 @@ pub const InitOptions = struct {
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
     each_lib_rpath: ?bool = null,
+    build_id: ?bool = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_notext: bool = false,
@@ -1172,6 +1173,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             else => @as(u8, 3),
         };
 
+        const build_id = options.build_id orelse false;
+
         // We put everything into the cache hash that *cannot be modified during an incremental update*.
         // For example, one cannot change the target between updates, but one can change source files,
         // so the target goes into the cache hash, but source files do not. This is so that we can
@@ -1206,6 +1209,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(red_zone);
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
+        cache.hash.add(build_id);
         cache.hash.add(options.function_sections);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
@@ -1516,6 +1520,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
+            .build_id = build_id,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
