@@ -343,6 +343,7 @@ pub const Object = struct {
             comp.bin_file.options.optimize_mode == .Debug,
             comp.bin_file.options.optimize_mode == .ReleaseSmall,
             comp.time_report,
+            comp.bin_file.options.trace_pc_guard,
             comp.bin_file.options.tsan,
             comp.bin_file.options.lto,
             emit_asm_path,

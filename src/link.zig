@@ -113,6 +113,7 @@ pub const Options = struct {
     pie: bool,
     lto: bool,
     valgrind: bool,
+    trace_pc_guard: bool,
     tsan: bool,
     stack_check: bool,
     red_zone: bool,

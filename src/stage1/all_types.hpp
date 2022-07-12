@@ -2194,6 +2194,7 @@ struct CodeGen {
     bool include_compiler_rt;
     bool test_is_evented;
     bool valgrind_enabled;
+    bool trace_pc_guard;
     bool tsan_enabled;
 
     Buf *root_out_name;

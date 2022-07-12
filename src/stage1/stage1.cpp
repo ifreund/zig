@@ -98,6 +98,7 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->omit_frame_pointer = stage1->omit_frame_pointer;
     g->is_single_threaded = stage1->is_single_threaded;
     g->valgrind_enabled = stage1->valgrind_enabled;
+    g->trace_pc_guard = stage1->trace_pc_guard;
     g->tsan_enabled = stage1->tsan_enabled;
     g->link_libc = stage1->link_libc;
     g->link_libcpp = stage1->link_libcpp;

@@ -123,6 +123,7 @@ pub const Module = extern struct {
     dll_export_fns: bool,
     link_mode_dynamic: bool,
     valgrind_enabled: bool,
+    trace_pc_guard: bool,
     tsan_enabled: bool,
     function_sections: bool,
     include_compiler_rt: bool,

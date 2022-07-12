@@ -1521,6 +1521,7 @@ pub const LibExeObjStep = struct {
     libc_file: ?FileSource = null,
 
     valgrind_support: ?bool = null,
+    trace_pc_guard: ?bool = null,
     each_lib_rpath: ?bool = null,
     /// On ELF targets, this will emit a link section called ".note.gnu.build-id"
     /// which can be used to coordinate a stripped binary with its debug symbols.
@@ -2786,6 +2787,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fvalgrind");
             } else {
                 try zig_args.append("-fno-valgrind");
+            }
+        }
+
+        if (self.trace_pc_guard) |trace_pc_guard| {
+            if (trace_pc_guard) {
+                try zig_args.append("-ftrace-pc-guard");
+            } else {
+                try zig_args.append("-fno-trace-pc-guard");
             }
         }
 

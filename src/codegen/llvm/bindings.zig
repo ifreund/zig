@@ -836,6 +836,7 @@ pub const TargetMachine = opaque {
         is_debug: bool,
         is_small: bool,
         time_report: bool,
+        trace_pc_guard: bool,
         tsan: bool,
         lto: bool,
         asm_filename: ?[*:0]const u8,

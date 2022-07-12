@@ -57,6 +57,7 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/Instrumentation/SanitizerCoverage.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
@@ -154,6 +155,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     }
 
     TargetOptions opt;
+    opt.UseInitArray = true;
 
     opt.FunctionSections = function_sections;
     switch (float_abi) {
@@ -224,7 +226,7 @@ struct TimeTracerRAII {
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan, bool lto,
+        bool is_small, bool time_report, bool trace_pc_guard, bool tsan, bool lto,
         const char *asm_filename, const char *bin_filename,
         const char *llvm_ir_filename, const char *bitcode_filename)
 {
@@ -334,6 +336,16 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         [](ModulePassManager &module_pm, OptimizationLevel OL) {
           module_pm.addPass(
             createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
+        });
+    }
+
+    if (trace_pc_guard) {
+      pass_builder.registerOptimizerLastEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel level) {
+          SanitizerCoverageOptions options;
+          options.CoverageType = SanitizerCoverageOptions::SCK_Edge;
+          options.TracePCGuard = true;
+          module_pm.addPass(ModuleSanitizerCoveragePass(options));
         });
     }
 

@@ -8731,8 +8731,8 @@ static void zig_llvm_emit_output(CodeGen *g) {
     // So we call the entire pipeline multiple times if this is requested.
     if (asm_filename != nullptr && bin_filename != nullptr) {
         if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
-            g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
-            g->have_lto, nullptr, bin_filename, llvm_ir_filename, nullptr))
+            g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->trace_pc_guard,
+            g->tsan_enabled, g->have_lto, nullptr, bin_filename, llvm_ir_filename, nullptr))
         {
             fprintf(stderr, "LLVM failed to emit bin=%s, ir=%s: %s\n",
                     bin_filename, llvm_ir_filename, err_msg);
@@ -8743,8 +8743,8 @@ static void zig_llvm_emit_output(CodeGen *g) {
     }
 
     if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg,
-        g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->tsan_enabled,
-        g->have_lto, asm_filename, bin_filename, llvm_ir_filename, bitcode_filename))
+        g->build_mode == BuildModeDebug, is_small, g->enable_time_report, g->trace_pc_guard,
+        g->tsan_enabled, g->have_lto, asm_filename, bin_filename, llvm_ir_filename, bitcode_filename))
     {
         fprintf(stderr, "LLVM failed to emit asm=%s, bin=%s, ir=%s, bc=%s: %s\n",
                 asm_filename, bin_filename, llvm_ir_filename, bitcode_filename,

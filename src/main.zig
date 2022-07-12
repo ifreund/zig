@@ -358,6 +358,8 @@ const usage_build_generic =
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
+    \\  -ftrace-pc-guard          TODO See LLVM SanitizerCoverage docs
+    \\  -fno-trace-pc-guard       TODO See LLVM SanitizerCoverage docs
     \\  -fsanitize-thread         Enable Thread Sanitizer
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
     \\  -fdll-export-fns          Mark exported functions as DLL exports (Windows)
@@ -621,6 +623,7 @@ fn buildOutputType(
     var want_red_zone: ?bool = null;
     var omit_frame_pointer: ?bool = null;
     var want_valgrind: ?bool = null;
+    var want_trace_pc_guard: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
     var rdynamic: bool = false;
@@ -1063,6 +1066,10 @@ fn buildOutputType(
                         want_valgrind = true;
                     } else if (mem.eql(u8, arg, "-fno-valgrind")) {
                         want_valgrind = false;
+                    } else if (mem.eql(u8, arg, "-ftrace-pc-guard")) {
+                        want_trace_pc_guard = true;
+                    } else if (mem.eql(u8, arg, "-fno-trace-pc-guard")) {
+                        want_trace_pc_guard = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-thread")) {
                         want_tsan = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-thread")) {
@@ -2532,6 +2539,7 @@ fn buildOutputType(
         .want_red_zone = want_red_zone,
         .omit_frame_pointer = omit_frame_pointer,
         .want_valgrind = want_valgrind,
+        .want_trace_pc_guard = want_trace_pc_guard,
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
         .use_llvm = use_llvm,

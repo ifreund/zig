@@ -708,6 +708,7 @@ pub const InitOptions = struct {
     want_red_zone: ?bool = null,
     omit_frame_pointer: ?bool = null,
     want_valgrind: ?bool = null,
+    want_trace_pc_guard: ?bool = null,
     want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
     want_lto: ?bool = null,
@@ -927,6 +928,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
             }
         }
+
+        const trace_pc_guard = options.want_trace_pc_guard orelse false;
 
         const tsan = options.want_tsan orelse false;
         // TSAN is implemented in C++ so it requires linking libc++.
@@ -1204,6 +1207,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(pie);
         cache.hash.add(lto);
         cache.hash.add(unwind_tables);
+        cache.hash.add(trace_pc_guard);
         cache.hash.add(tsan);
         cache.hash.add(stack_check);
         cache.hash.add(red_zone);
@@ -1507,6 +1511,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .pie = pie,
             .lto = lto,
             .valgrind = valgrind,
+            .trace_pc_guard = trace_pc_guard,
             .tsan = tsan,
             .stack_check = stack_check,
             .red_zone = red_zone,
@@ -3560,6 +3565,10 @@ pub fn addCCArgs(
                 try argv.append("-fsanitize=thread");
             }
 
+            if (comp.bin_file.options.trace_pc_guard) {
+                try argv.append("-fsanitize-coverage=trace-pc-guard");
+            }
+
             if (comp.bin_file.options.red_zone) {
                 try argv.append("-mred-zone");
             } else if (target_util.hasRedZone(target)) {
@@ -4735,6 +4744,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .dll_export_fns = comp.bin_file.options.dll_export_fns,
         .link_mode_dynamic = comp.bin_file.options.link_mode == .Dynamic,
         .valgrind_enabled = comp.bin_file.options.valgrind,
+        .trace_pc_guard = comp.bin_file.options.trace_pc_guard,
         .tsan_enabled = comp.bin_file.options.tsan,
         .function_sections = comp.bin_file.options.function_sections,
         .include_compiler_rt = include_compiler_rt,
