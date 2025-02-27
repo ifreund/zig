@@ -1061,7 +1061,7 @@ pub const Compiler = struct {
                     try writer.writeAll(ascii_string);
                 },
                 .wide_string => |wide_string| {
-                    try writer.writeAll(std.mem.sliceAsBytes(wide_string));
+                    try writer.writeAll(@ptrCast(wide_string));
                 },
             }
         }
@@ -1786,7 +1786,7 @@ pub const Compiler = struct {
         if (optional_statement_values.caption) |caption| {
             const parsed = try self.parseQuotedStringAsWideString(caption);
             defer self.allocator.free(parsed);
-            try data_writer.writeAll(std.mem.sliceAsBytes(parsed[0 .. parsed.len + 1]));
+            try data_writer.writeAll(@ptrCast(std.mem.absorbSentinel(parsed)));
         } else {
             try data_writer.writeInt(u16, 0, .little);
         }
@@ -2080,7 +2080,7 @@ pub const Compiler = struct {
 
         const typeface = try self.parseQuotedStringAsWideString(node.typeface);
         defer self.allocator.free(typeface);
-        try writer.writeAll(std.mem.sliceAsBytes(typeface[0 .. typeface.len + 1]));
+        try writer.writeAll(@ptrCast(std.mem.absorbSentinel(typeface)));
     }
 
     pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: anytype) !void {
@@ -2184,7 +2184,7 @@ pub const Compiler = struct {
 
                 var text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(@ptrCast(std.mem.absorbSentinel(text)));
             },
             .popup => {
                 const popup: *Node.Popup = @alignCast(@fieldParentPtr("base", node));
@@ -2199,7 +2199,7 @@ pub const Compiler = struct {
 
                 var text = try self.parseQuotedStringAsWideString(popup.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(@ptrCast(std.mem.absorbSentinel(text)));
 
                 for (popup.items, 0..) |item, i| {
                     const is_last = i == popup.items.len - 1;
@@ -2238,7 +2238,7 @@ pub const Compiler = struct {
 
                 var text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(@ptrCast(std.mem.absorbSentinel(text)));
 
                 // Only the combination of the flags u16 and the text bytes can cause
                 // non-DWORD alignment, so we can just use the byte length of those
@@ -2275,8 +2275,7 @@ pub const Compiler = struct {
         try data_writer.writeInt(u16, 0, .little); // placeholder size
         try data_writer.writeInt(u16, res.FixedFileInfo.byte_len, .little);
         try data_writer.writeInt(u16, res.VersionNode.type_binary, .little);
-        const key_bytes = std.mem.sliceAsBytes(res.FixedFileInfo.key[0 .. res.FixedFileInfo.key.len + 1]);
-        try data_writer.writeAll(key_bytes);
+        try data_writer.writeAll(@ptrCast(std.mem.absorbSentinel(res.FixedFileInfo.key)));
         // The number of bytes written up to this point is always the same, since the name
         // of the node is a constant (FixedFileInfo.key). The total number of bytes
         // written so far is 38, so we need 2 padding bytes to get back to DWORD alignment
@@ -2411,8 +2410,7 @@ pub const Compiler = struct {
                 const parsed_key = try self.parseQuotedStringAsWideString(block_or_value.key);
                 defer self.allocator.free(parsed_key);
 
-                const parsed_key_to_first_null = std.mem.sliceTo(parsed_key, 0);
-                try writer.writeAll(std.mem.sliceAsBytes(parsed_key_to_first_null[0 .. parsed_key_to_first_null.len + 1]));
+                try writer.writeAll(@ptrCast(std.mem.absorbSentinel(std.mem.sliceTo(parsed_key, 0))));
 
                 var has_number_value: bool = false;
                 for (block_or_value.values) |value_value_node_uncasted| {
@@ -2450,7 +2448,7 @@ pub const Compiler = struct {
                         defer self.allocator.free(parsed_value);
 
                         const parsed_to_first_null = std.mem.sliceTo(parsed_value, 0);
-                        try writer.writeAll(std.mem.sliceAsBytes(parsed_to_first_null));
+                        try writer.writeAll(@ptrCast(parsed_to_first_null));
                         // Strings use UTF-16 code-unit count including the null-terminator, but
                         // only if there are no number values in the list.
                         var value_size = parsed_to_first_null.len;
@@ -3286,7 +3284,7 @@ pub const StringTable = struct {
                 // We already trimmed any trailing NULs, so we know it will be a new addition to the string.
                 if (compiler.null_terminate_string_table_strings) string_len_in_utf16_code_units += 1;
                 try data_writer.writeInt(u16, string_len_in_utf16_code_units, .little);
-                try data_writer.writeAll(std.mem.sliceAsBytes(trimmed_string));
+                try data_writer.writeAll(@ptrCast(trimmed_string));
                 if (compiler.null_terminate_string_table_strings) {
                     try data_writer.writeInt(u16, 0, .little);
                 }
