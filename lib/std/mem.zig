@@ -685,7 +685,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
         eqlBytes_allowed)
     {
-        return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+        return eqlBytes(@ptrCast(a), @ptrCast(b));
     }
 
     if (a.len != b.len) return false;
@@ -1474,8 +1474,8 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
 
-    const haystack_bytes = sliceAsBytes(haystack);
-    const needle_bytes = sliceAsBytes(needle);
+    const haystack_bytes: []const T = @ptrCast(haystack);
+    const needle_bytes: []const T = @ptrCast(needle);
 
     var skip_table: [256]usize = undefined;
     boyerMooreHorspoolPreprocessReverse(needle_bytes, skip_table[0..]);
@@ -1505,8 +1505,8 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
-    const haystack_bytes = sliceAsBytes(haystack);
-    const needle_bytes = sliceAsBytes(needle);
+    const haystack_bytes: []const T = @ptrCast(haystack);
+    const needle_bytes: []const T = @ptrCast(needle);
 
     var skip_table: [256]usize = undefined;
     boyerMooreHorspoolPreprocess(needle_bytes, skip_table[0..]);

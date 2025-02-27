@@ -5858,7 +5858,7 @@ fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     // If ZIR is adjusted so that big int limbs are guaranteed to be aligned, these
     // two lines can be removed.
     const limbs = try sema.arena.alloc(std.math.big.Limb, int.len);
-    @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
+    @memcpy(@as([]u8, @ptrCast(limbs)), limb_bytes);
 
     return Air.internedToRef((try sema.pt.intValue_big(Type.comptime_int, .{
         .limbs = limbs,
@@ -6862,7 +6862,7 @@ pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTer
     const nts: Air.NullTerminatedString = @enumFromInt(sema.air_extra.items.len);
     const elements_used = str.len / 4 + 1;
     const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
-    const buffer = mem.sliceAsBytes(elements);
+    const buffer: []u8 = @ptrCast(elements);
     @memcpy(buffer[0..str.len], str);
     buffer[str.len] = 0;
     return nts;
@@ -17449,7 +17449,7 @@ fn zirAsm(
     sema.appendRefsAssumeCapacity(out_args);
     sema.appendRefsAssumeCapacity(args);
     for (outputs) |o| {
-        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        const buffer: []u8 = @ptrCast(sema.air_extra.unusedCapacitySlice());
         @memcpy(buffer[0..o.c.len], o.c);
         buffer[o.c.len] = 0;
         @memcpy(buffer[o.c.len + 1 ..][0..o.n.len], o.n);
@@ -17457,7 +17457,7 @@ fn zirAsm(
         sema.air_extra.items.len += (o.c.len + o.n.len + (2 + 3)) / 4;
     }
     for (inputs) |input| {
-        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        const buffer: []u8 = @ptrCast(sema.air_extra.unusedCapacitySlice());
         @memcpy(buffer[0..input.c.len], input.c);
         buffer[input.c.len] = 0;
         @memcpy(buffer[input.c.len + 1 ..][0..input.n.len], input.n);
@@ -17465,13 +17465,13 @@ fn zirAsm(
         sema.air_extra.items.len += (input.c.len + input.n.len + (2 + 3)) / 4;
     }
     for (clobbers) |clobber| {
-        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        const buffer: []u8 = @ptrCast(sema.air_extra.unusedCapacitySlice());
         @memcpy(buffer[0..clobber.len], clobber);
         buffer[clobber.len] = 0;
         sema.air_extra.items.len += clobber.len / 4 + 1;
     }
     {
-        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
+        const buffer: []u8 = @ptrCast(sema.air_extra.unusedCapacitySlice());
         @memcpy(buffer[0..asm_source.len], asm_source);
         sema.air_extra.items.len += (asm_source.len + 3) / 4;
     }
@@ -20841,9 +20841,9 @@ fn structInitAnon(
     // so there's no point having a separate `InternPool.NamespaceType` field for them.
     const type_hash: u64 = hash: {
         var hasher = std.hash.Wyhash.init(0);
-        hasher.update(std.mem.sliceAsBytes(types));
-        hasher.update(std.mem.sliceAsBytes(values));
-        hasher.update(std.mem.sliceAsBytes(names));
+        hasher.update(@ptrCast(types));
+        hasher.update(@ptrCast(values));
+        hasher.update(@ptrCast(names));
         break :hash hasher.final();
     };
     const tracked_inst = try block.trackZir(inst);

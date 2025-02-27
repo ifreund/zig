@@ -103,7 +103,7 @@ pub fn LinearFifo(
                 }
             }
             { // set unused area to undefined
-                const unused = mem.sliceAsBytes(self.buf[self.count..]);
+                const unused: []u8 = @ptrCast(self.buf[self.count..]);
                 @memset(unused, undefined);
             }
         }
@@ -179,12 +179,12 @@ pub fn LinearFifo(
             { // set old range to undefined. Note: may be wrapped around
                 const slice = self.readableSliceMut(0);
                 if (slice.len >= count) {
-                    const unused = mem.sliceAsBytes(slice[0..count]);
+                    const unused: []u8 = @ptrCast(slice[0..count]);
                     @memset(unused, undefined);
                 } else {
-                    const unused = mem.sliceAsBytes(slice[0..]);
+                    const unused: []u8 = @ptrCast(slice[0..]);
                     @memset(unused, undefined);
-                    const unused2 = mem.sliceAsBytes(self.readableSliceMut(slice.len)[0 .. count - slice.len]);
+                    const unused2: []u8 = @ptrCast(self.readableSliceMut(slice.len)[0 .. count - slice.len]);
                     @memset(unused2, undefined);
                 }
             }

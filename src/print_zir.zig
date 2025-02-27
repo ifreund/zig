@@ -764,7 +764,7 @@ const Writer = struct {
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
         defer self.gpa.free(limbs);
 
-        @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
+        @memcpy(@as([]u8 @ptrCast(limbs)), limb_bytes);
         const big_int: std.math.big.int.Const = .{
             .limbs = limbs,
             .positive = true,

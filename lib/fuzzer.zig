@@ -158,7 +158,7 @@ const Fuzzer = struct {
         f.pcs = pcs;
 
         // Choose a file name for the coverage based on a hash of the PCs that will be stored within.
-        const pc_digest = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(pcs));
+        const pc_digest = std.hash.Wyhash.hash(0, @ptrCast(pcs));
         f.coverage_id = pc_digest;
         const hex_digest = std.fmt.hex(pc_digest);
         const coverage_file_path = "v/" ++ hex_digest;
@@ -208,7 +208,7 @@ const Fuzzer = struct {
             };
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
             f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
-            f.seen_pcs.appendSliceAssumeCapacity(std.mem.sliceAsBytes(pcs));
+            f.seen_pcs.appendSliceAssumeCapacity(@ptrCast(pcs));
         }
     }
 

@@ -1643,7 +1643,7 @@ pub const NullTerminatedString = enum(u32) {
 
     pub fn toSlice(nts: NullTerminatedString, air: Air) [:0]const u8 {
         if (nts == .none) return "";
-        const bytes = std.mem.sliceAsBytes(air.extra[@intFromEnum(nts)..]);
+        const bytes: []u8 = @ptrCast(air.extra[@intFromEnum(nts)..]);
         return bytes[0..std.mem.indexOfScalar(u8, bytes, 0).? :0];
     }
 };
