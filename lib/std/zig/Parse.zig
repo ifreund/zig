@@ -2765,15 +2765,15 @@ fn parseWhileTypeExpr(p: *Parse) !?Node.Index {
 /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
 fn parseSwitchExpr(p: *Parse, is_labeled: bool) !?Node.Index {
     const switch_token = p.eatToken(.keyword_switch) orelse return null;
-    return try p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
+    return try p.expectSwitchSuffix(switch_token, is_labeled);
 }
 
 fn expectSwitchExpr(p: *Parse, is_labeled: bool) !Node.Index {
     const switch_token = p.assertToken(.keyword_switch);
-    return try p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
+    return try p.expectSwitchSuffix(switch_token, is_labeled);
 }
 
-fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
+fn expectSwitchSuffix(p: *Parse, switch_token: TokenIndex, is_labeled: bool) !Node.Index {
     _ = try p.expectToken(.l_paren);
     const expr_node = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -2783,8 +2783,15 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
     _ = try p.expectToken(.r_brace);
 
     return p.addNode(.{
-        .tag = if (trailing_comma) .switch_comma else .@"switch",
-        .main_token = main_token,
+        .tag = if (is_labeled and trailing_comma)
+            .switch_labeled_comma
+        else if (is_labeled and !trailing_comma)
+            .switch_labeled
+        else if (trailing_comma)
+            .switch_comma
+        else
+            .@"switch",
+        .main_token = switch_token,
         .data = .{ .node_and_extra = .{
             expr_node,
             try p.addExtra(Node.SubRange{

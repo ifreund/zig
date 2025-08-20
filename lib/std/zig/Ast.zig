@@ -831,6 +831,14 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .ptr_type_bit_range,
         => return tree.nodeMainToken(n) - end_offset,
 
+        .switch_labeled,
+        .switch_labeled_comma,
+        => {
+            const main_token = tree.nodeMainToken(n);
+            assert(tree.isTokenPrecededByTags(main_token, &.{ .identifier, .colon }));
+            return main_token - 2;
+        },
+
         .switch_case_one,
         .switch_case_inline_one,
         .switch_case,
@@ -1028,7 +1036,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             end_offset += 2; // for the comma/semicolon + rparen/rbrace
             n = @enumFromInt(tree.extra_data[@intFromEnum(params.end) - 1]); // last parameter
         },
-        .@"switch" => {
+        .@"switch", .switch_labeled => {
             const condition, const extra_index = tree.nodeData(n).node_and_extra;
             const cases = tree.extraData(extra_index, Node.SubRange);
             if (cases.start == cases.end) {
@@ -1073,6 +1081,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .struct_init_comma,
         .container_decl_arg_trailing,
         .switch_comma,
+        .switch_labeled_comma,
         => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
             const members = tree.extraData(extra_index, Node.SubRange);
@@ -1845,10 +1854,10 @@ pub fn taggedUnionEnumTag(tree: Ast, node: Node.Index) full.ContainerDecl {
 }
 
 pub fn switchFull(tree: Ast, node: Node.Index) full.Switch {
-    const main_token = tree.nodeMainToken(node);
-    const switch_token: TokenIndex, const label_token: ?TokenIndex = switch (tree.tokenTag(main_token)) {
-        .identifier => .{ main_token + 2, main_token },
-        .keyword_switch => .{ main_token, null },
+    const switch_token = tree.nodeMainToken(node);
+    const label_token: ?TokenIndex = switch (tree.nodeTag(node)) {
+        .switch_labeled, .switch_labeled_comma => switch_token - 2,
+        .@"switch", .switch_comma => null,
         else => unreachable,
     };
     const condition, const extra_index = tree.nodeData(node).node_and_extra;
@@ -2181,20 +2190,6 @@ fn fullContainerDeclComponents(tree: Ast, info: full.ContainerDecl.Components) f
     return result;
 }
 
-fn fullSwitchComponents(tree: Ast, info: full.Switch.Components) full.Switch {
-    const tok_i = info.switch_token -| 1;
-    var result: full.Switch = .{
-        .ast = info,
-        .label_token = null,
-    };
-    if (tree.tokenTag(tok_i) == .colon and
-        tree.tokenTag(tok_i -| 1) == .identifier)
-    {
-        result.label_token = tok_i - 1;
-    }
-    return result;
-}
-
 fn fullSwitchCaseComponents(tree: Ast, info: full.SwitchCase.Components, node: Node.Index) full.SwitchCase {
     var result: full.SwitchCase = .{
         .ast = info,
@@ -2471,7 +2466,7 @@ pub fn fullContainerDecl(tree: Ast, buffer: *[2]Ast.Node.Index, node: Node.Index
 
 pub fn fullSwitch(tree: Ast, node: Node.Index) ?full.Switch {
     return switch (tree.nodeTag(node)) {
-        .@"switch", .switch_comma => tree.switchFull(node),
+        .@"switch", .switch_comma, .switch_labeled, .switch_labeled_comma => tree.switchFull(node),
         else => null,
     };
 }
@@ -3542,6 +3537,10 @@ pub const Node = struct {
         /// Same as `switch` except there is known to be a trailing comma before
         /// the final rbrace.
         switch_comma,
+        /// Same as `switch` except labeled, i.e. `label: switch (a) { ... }`.
+        switch_labeled,
+        /// Same as `switch_comma` except labeled, i.e. `label: switch (a) { ..., }`.
+        switch_labeled_comma,
         /// `a => b`,
         /// `else => b`.
         ///

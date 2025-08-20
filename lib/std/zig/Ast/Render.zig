@@ -845,6 +845,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .@"switch",
         .switch_comma,
+        .switch_labeled,
+        .switch_labeled_comma,
         => {
             const full = tree.switchFull(node);
 
